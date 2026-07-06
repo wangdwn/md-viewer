@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>极简Markdown编辑器</title>
+<style>
+/* ===== Reset & Base ===== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#fafafa; --bg2:#fff; --fg:#1a1a2e; --fg2:#555;
+  --accent:#6366f1; --accent2:#818cf8; --border:#e2e8f0;
+  --toolbar:#f1f5f9; --code-bg:#1e293b; --code-fg:#e2e8f0;
+  --shadow:0 1px 3px rgba(0,0,0,.08);
+  --radius:8px; --font:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'Cascadia Code','JetBrains Mono','Fira Code','Consolas',monospace;
+}
+body{font:16px/1.7 var(--font);background:var(--bg);color:var(--fg);height:100vh;display:flex;flex-direction:column}
+button{cursor:pointer;font:inherit;border:none;background:var(--accent);color:#fff;padding:6px 14px;border-radius:6px;font-size:13px;transition:.2s;white-space:nowrap}
+button:hover{background:var(--accent2)}
+button:disabled{opacity:.4;cursor:default}
+
+/* ===== Toolbar ===== */
+.toolbar{display:flex;gap:6px;align-items:center;padding:8px 16px;background:var(--toolbar);border-bottom:1px solid var(--border);flex-wrap:wrap;position:sticky;top:0;z-index:10}
+.toolbar .logo{font-weight:700;font-size:15px;color:var(--accent);margin-right:12px;user-select:none}
+.toolbar .sep{width:1px;height:24px;background:var(--border);margin:0 4px}
+.toolbar .btn-grp{display:flex;gap:4px;align-items:center}
+.toolbar button.tb{background:transparent;color:var(--fg);padding:4px 10px;font-size:13px}
+.toolbar button.tb:hover{background:var(--border)}
+.toolbar .file-info{font-size:12px;color:var(--fg2);margin-left:auto}
+
+/* ===== Main Layout ===== */
+.main{flex:1;display:flex;overflow:hidden}
+.pane{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.pane+.pane{border-left:1px solid var(--border)}
+.pane-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--fg2);padding:6px 16px;background:var(--toolbar);border-bottom:1px solid var(--border);user-select:none}
+
+/* Editor */
+#editor{flex:1;width:100%;border:none;outline:none;resize:none;padding:20px 24px;font:15px/1.7 var(--mono);background:var(--bg2);color:var(--fg);tab-size:2;overflow:auto}
+#editor::placeholder{color:#aaa}
+
+/* Preview */
+#preview{flex:1;padding:20px 24px;overflow:auto;background:var(--bg2);word-wrap:break-word}
+#preview>*{margin-bottom:16px}
+#preview h1,#preview h2,#preview h3,#preview h4{border-bottom:2px solid var(--border);padding-bottom:6px;margin-top:24px;color:var(--fg)}
+#preview h1{font-size:1.6em}
+#preview h2{font-size:1.3em}
+#preview h3{font-size:1.1em}
+#preview a{color:var(--accent)}
+#preview code{background:var(--code-bg);color:var(--code-fg);padding:2px 6px;border-radius:4px;font-size:.9em;font-family:var(--mono)}
+#preview pre{background:var(--code-bg);padding:16px;border-radius:var(--radius);overflow-x:auto}
+#preview pre code{background:transparent;padding:0;border-radius:0;font-size:14px}
+#preview blockquote{border-left:4px solid var(--accent);padding:8px 16px;background:var(--toolbar);border-radius:0 var(--radius) var(--radius) 0;color:var(--fg2)}
+#preview table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+#preview th,#preview td{border:1px solid var(--border);padding:8px 12px;text-align:left}
+#preview th{background:var(--toolbar);font-weight:600}
+#preview tr:nth-child(even){background:var(--bg)}
+#preview img{max-width:100%;border-radius:var(--radius);margin:8px 0}
+#preview ul,#preview ol{padding-left:24px}
+#preview hr{border:none;border-top:2px solid var(--border);margin:24px 0}
+#preview .hljs{background:transparent}
+
+/* ===== Toast ===== */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--fg);color:#fff;padding:10px 24px;border-radius:8px;font-size:13px;opacity:0;transition:.3s;pointer-events:none;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.toast.show{opacity:1}
+
+/* ===== Resizer ===== */
+.resizer{width:4px;cursor:col-resize;background:transparent;position:relative;flex-shrink:0;z-index:5}
+.resizer:hover,.resizer:active{background:var(--accent)}
+.resizer::after{content:'';position:absolute;left:1px;top:0;bottom:0;width:2px}
+
+/* ===== Responsive ===== */
+@media(max-width:768px){
+  .main{flex-direction:column}
+  .pane+.pane{border-left:none;border-top:1px solid var(--border)}
+  .resizer{display:none}
+  .toolbar .file-info{display:none}
+}
+
+/* ===== Print ===== */
+@media print{body{height:auto}.toolbar,.resizer,.pane-label,.toast{display:none!important}.main{display:block}.pane{overflow:visible;border:none!important}#editor{display:none}#preview{padding:0;overflow:visible}}
+</style>
+</head>
+<body>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <span class="logo">✎ MD</span>
+  <div class="btn-grp">
+    <button class="tb" onclick="toggleView()" title="切换视图" id="viewBtn">👁 分栏</button>
+    <button class="tb" onclick="insertMarkdown('**','**')" title="加粗">B</button>
+    <button class="tb" onclick="insertMarkdown('*','*')" title="斜体"><i>I</i></button>
+    <button class="tb" onclick="insertMarkdown('`','`')" title="代码">⟨/⟩</button>
+    <button class="tb" onclick="insertMarkdown('[','](url)')" title="链接">🔗</button>
+    <button class="tb" onclick="insertBefore('- ')" title="无序列表">•</button>
+    <button class="tb" onclick="insertBefore('1. ')" title="有序列表">1.</button>
+    <button class="tb" onclick="insertBefore('> ')" title="引用">❝</button>
+    <button class="tb" onclick="insertBefore('---\n')" title="分隔线">—</button>
+  </div>
+  <div class="sep"></div>
+  <div class="btn-grp">
+    <button class="tb" onclick="exportHTML()" title="导出HTML">↓ HTML</button>
+    <button class="tb" onclick="printDoc()" title="打印/PDF">🖨 PDF</button>
+    <button class="tb" onclick="clearDoc()" title="清空">✕</button>
+  </div>
+  <span class="file-info" id="fileInfo"></span>
+</div>
+
+<!-- Main -->
+<div class="main" id="main">
+  <div class="pane" id="editorPane">
+    <div class="pane-label">Markdown</div>
+    <textarea id="editor" placeholder="在此输入 Markdown…&#10;&#10;# 标题&#10;内容 **粗体** *斜体* `代码`&#10;&#10;- 列表项&#10;1. 有序列表&#10;&#10;> 引用&#10;&#10;---&#10;&#10;| 表头 | 列 |&#10;|------|---|&#10;| 数据 | 值 |"></textarea>
+  </div>
+  <div class="resizer" id="resizer"></div>
+  <div class="pane" id="previewPane">
+    <div class="pane-label">预览</div>
+    <div id="preview"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== Markdown Parser (lightweight, zero deps) =====
+function parseMD(src){
+  if(!src) return '<p style="color:#aaa;font-style:italic">暂无内容</p>';
+
+  // Escape HTML entities first
+  let h = src
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // Code blocks (fenced) - must be first
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g,(m,lang,code)=>{
+    const esc = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<pre><code class="lang-${lang||''}">${esc}</code></pre>`;
+  });
+
+  // Inline code (before other formatting)
+  h = h.replace(/`([^`]+)`/g,'<code>$1</code>');
+
+  // Images
+  h = h.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img src="$2" alt="$1" loading="lazy">');
+
+  // Links
+  h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Horizontal rule (before headings)
+  h = h.replace(/^---+\s*$/gm,'<hr>');
+
+  // Headings
+  h = h.replace(/^######\s+(.*)$/gm,'<h6>$1</h6>');
+  h = h.replace(/^#####\s+(.*)$/gm,'<h5>$1</h5>');
+  h = h.replace(/^####\s+(.*)$/gm,'<h4>$1</h4>');
+  h = h.replace(/^###\s+(.*)$/gm,'<h3>$1</h3>');
+  h = h.replace(/^##\s+(.*)$/gm,'<h2>$1</h2>');
+  h = h.replace(/^#\s+(.*)$/gm,'<h1>$1</h1>');
+
+  // Bold & Italic
+  h = h.replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>');
+  h = h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  h = h.replace(/\*(.+?)\*/g,'<em>$1</em>');
+
+  // Blockquotes - multi-line
+  h = h.replace(/^(&gt;|>)\s+(.*?)(?:\n|$)/gm,(m,prefix,content)=>{
+    return `<blockquote>${content}<br></blockquote>`;
+  });
+  // Clean consecutive blockquotes
+  h = h.replace(/<\/blockquote>\s*<blockquote>/g,'<br>');
+  // Remove trailing <br> inside blockquotes
+  h = h.replace(/<br><\/blockquote>/g,'</blockquote>');
+
+  // Unordered lists
+  h = h.replace(/^(\s*)[*+-]\s+(.*?)(?:\n|$)/gm,(m,indent,content)=>{
+    const nest = indent.length/2;
+    const tag = nest===0 ? 'ul' : 'ul';
+    return `<li>${content}</li>`;
+  });
+  // Wrap consecutive <li> in <ul>
+  h = h.replace(/((?:<li>.*?<\/li>\s*)+)/g,(m)=>{
+    if(!m.includes('<ul>')){
+      // Check we don't wrap already wrapped
+      return `<ul>${m.replace(/\s*<br>\s*$/,'')}</ul>`;
+    }
+    return m;
+  });
+
+  // Ordered lists
+  h = h.replace(/^(\s*)\d+\.\s+(.*?)(?:\n|$)/gm,(m,indent,content)=>{
+    return `<oli>${content}</oli>`;
+  });
+  h = h.replace(/((?:<oli>.*?<\/oli>\s*)+)/g,'<ol>$1</ol>');
+  h = h.replace(/<\/?oli>/g,(m)=>m==='<oli>'?'<li>':'</li>');
+
+  // Tables
+  h = h.replace(/^\|(.+)\|(?:\n\|[-| :]+\|)?\n((?:\|.+\|\n?)*)/gm,(m,header,rows)=>{
+    const cells = header.split('|').filter(c=>c.trim()).map(c=>`<th>${c.trim()}</th>`).join('');
+    let body='';
+    if(rows){
+      body = rows.split('\n').filter(r=>r.trim().startsWith('|')).map(r=>{
+        return '<tr>'+r.split('|').filter(c=>c.trim()).map(c=>`<td>${c.trim()}</td>`).join('')+'</tr>';
+      }).join('');
+    }
+    return `<table><thead><tr>${cells}</tr></thead><tbody>${body}</tbody></table>`;
+  });
+
+  // Paragraphs - wrap remaining text lines
+  const lines = h.split('\n');
+  let result='', inBlock=false;
+  const blockTags = ['h1','h2','h3','h4','h5','h6','ul','ol','li','pre','blockquote','table','hr','img'];
+  for(let i=0;i<lines.length;i++){
+    const l = lines[i].trim();
+    if(!l){ result+='\n'; continue; }
+    // Check if already wrapped in a block tag
+    const inTag = blockTags.some(t=>l.startsWith(`<${t}`)||l.startsWith(`</${t}`)||l.startsWith(`<li`)||l.startsWith(`<img`));
+    if(inTag){ result += l+'\n'; }
+    else { result += `<p>${l}</p>\n`; }
+  }
+
+  return result;
+}
+
+// ===== Editor State =====
+const editor = document.getElementById('editor');
+const preview = document.getElementById('preview');
+const fileInfo = document.getElementById('fileInfo');
+const toast = document.getElementById('toast');
+const DB_NAME = 'md-editor'; const STORE = 'docs'; const KEY = 'current';
+
+let viewMode = 'split'; // split | edit | preview
+let saveTimeout = null;
+
+// ===== Storage =====
+function dbOpen(){
+  return new Promise((res,rej)=>{
+    const req = indexedDB.open(DB_NAME,1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+    };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+
+async function loadFromDB(){
+  try{
+    const db = await dbOpen();
+    return new Promise((res,rej)=>{
+      const tx = db.transaction(STORE,'readonly');
+      const req = tx.objectStore(STORE).get(KEY);
+      req.onsuccess = () => res(req.result || '');
+      req.onerror = () => rej(req.error);
+    });
+  }catch(e){ return localStorage.getItem(KEY) || ''; }
+}
+
+async function saveToDB(text){
+  try{
+    const db = await dbOpen();
+    const tx = db.transaction(STORE,'readwrite');
+    tx.objectStore(STORE).put(text, KEY);
+    await new Promise((res,rej)=>{ tx.oncomplete=res; tx.onerror=rej; });
+  }catch(e){ localStorage.setItem(KEY, text); }
+  updateFileInfo();
+}
+
+function updateFileInfo(){
+  const len = editor.value.length;
+  const words = editor.value.trim() ? editor.value.trim().split(/\s+/).length : 0;
+  const lines = editor.value.split('\n').length;
+  fileInfo.textContent = `${len} 字符 · ${words} 词 · ${lines} 行`;
+}
+
+// ===== Render =====
+function render(){
+  preview.innerHTML = parseMD(editor.value);
+}
+
+// ===== Auto Save =====
+function scheduleSave(){
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(()=>{
+    saveToDB(editor.value);
+    showToast('自动保存 ✓');
+  },800);
+}
+
+// ===== Events =====
+editor.addEventListener('input',()=>{
+  render();
+  scheduleSave();
+});
+
+editor.addEventListener('keydown',(e)=>{
+  // Tab indent
+  if(e.key==='Tab'){
+    e.preventDefault();
+    const st=editor.selectionStart, en=editor.selectionEnd;
+    editor.value = editor.value.substring(0,st)+'  '+editor.value.substring(en);
+    editor.selectionStart=editor.selectionEnd=st+2;
+    render();
+  }
+});
+
+// ===== Insert helpers =====
+function insertMarkdown(before, after){
+  const st=editor.selectionStart, en=editor.selectionEnd;
+  const selected=editor.value.substring(st,en);
+  editor.value=editor.value.substring(0,st)+before+selected+after+editor.value.substring(en);
+  editor.selectionStart=st+before.length;
+  editor.selectionEnd=st+before.length+selected.length;
+  editor.focus(); render();
+}
+function insertBefore(text){
+  const st=editor.selectionStart;
+  editor.value=editor.value.substring(0,st)+text+editor.value.substring(st);
+  editor.selectionStart=editor.selectionEnd=st+text.length;
+  editor.focus(); render();
+}
+
+// ===== Actions =====
+function toggleView(){
+  const ep=document.getElementById('editorPane');
+  const pp=document.getElementById('previewPane');
+  const btn=document.getElementById('viewBtn');
+  if(viewMode==='split'){
+    viewMode='edit';
+    pp.style.display='none';
+    btn.textContent='👁 编辑';
+  }else if(viewMode==='edit'){
+    viewMode='preview';
+    ep.style.display='none';
+    pp.style.display='flex';
+    btn.textContent='👁 预览';
+  }else{
+    viewMode='split';
+    ep.style.display='flex';
+    pp.style.display='flex';
+    btn.textContent='👁 分栏';
+  }
+}
+
+function exportHTML(){
+  const title = editor.value.match(/^#\s+(.+)/m);
+  const docTitle = title ? title[1] : 'Markdown Document';
+  const style = `
+*{margin:0;padding:0;box-sizing:border-box}
+body{font:16px/1.7 system-ui,sans-serif;color:#1a1a2e;max-width:900px;margin:40px auto;padding:0 24px}
+h1,h2,h3{color:#1a1a2e;margin-top:24px;padding-bottom:6px;border-bottom:2px solid #e2e8f0}
+a{color:#6366f1}
+code{background:#1e293b;color:#e2e8f0;padding:2px 6px;border-radius:4px;font-size:.9em;font-family:monospace}
+pre{background:#1e293b;padding:16px;border-radius:8px;overflow-x:auto;margin:16px 0}
+pre code{background:transparent;padding:0}
+blockquote{border-left:4px solid #6366f1;padding:8px 16px;background:#f1f5f9;border-radius:0 8px 8px 0;color:#555}
+table{border-collapse:collapse;width:100%;margin:12px 0}
+th,td{border:1px solid #e2e8f0;padding:8px 12px;text-align:left}
+th{background:#f1f5f9}
+img{max-width:100%;border-radius:8px}
+ul,ol{padding-left:24px}
+hr{border:none;border-top:2px solid #e2e8f0;margin:24px 0}
+@media print{body{margin:20px auto}}`;
+  const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>${docTitle}</title><style>${style}</style></head><body>${preview.innerHTML}</body></html>`;
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`${docTitle}.html`; a.click();
+  URL.revokeObjectURL(url);
+  showToast('HTML 已导出 ✓');
+}
+
+function printDoc(){ window.print(); }
+
+function clearDoc(){
+  if(editor.value.trim() && !confirm('确定清空所有内容？')) return;
+  editor.value=''; render(); saveToDB('');
+  showToast('已清空');
+}
+
+function showToast(msg){
+  toast.textContent=msg; toast.classList.add('show');
+  clearTimeout(toast._timer);
+  toast._timer=setTimeout(()=>toast.classList.remove('show'),2000);
+}
+
+// ===== Resizer =====
+const resizer = document.getElementById('resizer');
+let isResizing = false;
+resizer.addEventListener('mousedown',(e)=>{ isResizing=true; e.preventDefault(); });
+document.addEventListener('mousemove',(e)=>{
+  if(!isResizing) return;
+  const main = document.getElementById('main');
+  const rect = main.getBoundingClientRect();
+  const pct = ((e.clientX - rect.left) / rect.width) * 100;
+  const clamped = Math.max(25, Math.min(75, pct));
+  document.getElementById('editorPane').style.flex = `0 0 ${clamped}%`;
+  document.getElementById('previewPane').style.flex = `1 1 ${100-clamped}%`;
+});
+document.addEventListener('mouseup',()=>{ isResizing=false; });
+
+// ===== Init =====
+(async function init(){
+  const saved = await loadFromDB();
+  if(saved){
+    editor.value = saved;
+    updateFileInfo();
+  }
+  render();
+  // Save periodically
+  setInterval(()=>{
+    const v = editor.value;
+    if(v) saveToDB(v);
+  },30000);
+  // Info update on activity
+  setInterval(updateFileInfo,5000);
+  showToast('已加载 ✓ 数据自动保存');
+})();
+</script>
+</body>
+</html>
