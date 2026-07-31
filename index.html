@@ -343,14 +343,31 @@ function toggleView(){
   }
 }
 
+function sanitizeFilename(s){
+  // 去Markdown格式 → 去非法文件名字符 → 去首尾空白和多余连字符
+  return s
+    .replace(/[*_~`#]/g, '')              // 去Markdown标记
+    .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1') // 链接留文字
+    .replace(/[\\/:*?"<>|]/g, '-')         // 去非法文件名
+    .replace(/\s+/g, ' ')                  // 合并空白
+    .replace(/-+/g, '-')                   // 合并连字符
+    .replace(/^-|-$/g, '')                 // 去首尾连字符
+    .trim();
+}
+
 function getDocTitle(){
-  // 1) 优先取第一个 # 标题
-  let m = editor.value.match(/^#\s+(.+)/m);
-  if(m) return m[1].replace(/[\\/:*?"<>|]/g, '-').trim();
-  // 2) 无标题时取第一个非空非分隔线行，截取前50字符
-  const lines = editor.value.split('\n').filter(l => l.trim() && !l.match(/^[-=]{3,}$/));
-  if(lines.length > 0) {
-    return lines[0].trim().substring(0, 50).replace(/[\\/:*?"<>|]/g, '-');
+  // 1) 优先取第一个 # 标题（h1→h2→h3）
+  for(const level of ['# ','## ','### ']){
+    const re = new RegExp('^'+level.replace(/#/g,'\\#')+'(?!#)\\s*(.+)','m');
+    const m = editor.value.match(re);
+    if(m){ const t = sanitizeFilename(m[1]); if(t) return t; }
+  }
+  // 2) 无标题时取第一个有意义的非空行（跳过分隔线、空白、纯数字日期）
+  const skipRe = /^[-=*]{3,}$|^\d{4}[-/]\d{1,2}[-/]\d{1,2}$|^\s*$/;
+  const lines = editor.value.split('\n').filter(l => !skipRe.test(l.trim()) && l.trim().length > 2);
+  if(lines.length > 0){
+    const t = sanitizeFilename(lines[0].trim().substring(0, 60));
+    if(t) return t;
   }
   // 3) 终极兜底
   const d = new Date();
