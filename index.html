@@ -77,6 +77,10 @@ button:disabled{opacity:.4;cursor:default}
   .toolbar .file-info{display:none}
 }
 
+/* ===== Drag-over ===== */
+.dragover #editor{border:2px dashed var(--accent);background:#f0f0ff}
+.dragover .pane-label[data-pane="editor"]::after{content:' 📂 释放文件导入';color:var(--accent);font-weight:400}
+
 /* ===== Print ===== */
 @media print{body{height:auto}.toolbar,.resizer,.pane-label,.toast{display:none!important}.main{display:block}.pane{overflow:visible;border:none!important}#editor{display:none}#preview{padding:0;overflow:visible}}
 </style>
@@ -99,6 +103,7 @@ button:disabled{opacity:.4;cursor:default}
   </div>
   <div class="sep"></div>
   <div class="btn-grp">
+    <button class="tb" onclick="importFile()" title="导入Markdown/文本文件">📥 导入</button>
     <button class="tb" onclick="exportMD()" title="导出Markdown">↓ MD</button>
     <button class="tb" onclick="exportHTML()" title="导出HTML">↓ HTML</button>
     <button class="tb" onclick="printDoc()" title="打印/PDF">🖨 PDF</button>
@@ -122,6 +127,9 @@ button:disabled{opacity:.4;cursor:default}
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- Hidden file input -->
+<input type="file" id="fileInput" accept=".md,.markdown,.txt,.text" style="display:none" onchange="handleFileSelect(event)">
 
 <script>
 // ===== Markdown Parser (lightweight, zero deps) =====
@@ -427,6 +435,60 @@ function clearDoc(){
   editor.value=''; render(); saveToDB('');
   showToast('已清空');
 }
+
+// ===== Import =====
+let currentFileName = null;
+
+function importFile(){
+  document.getElementById('fileInput').click();
+}
+
+function handleFileSelect(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  readAndLoad(file);
+  e.target.value = ''; // reset so same file can be re-imported
+}
+
+function readAndLoad(file){
+  const ext = file.name.split('.').pop().toLowerCase();
+  if(!['md','markdown','txt','text'].includes(ext)){
+    showToast('⚠ 仅支持 .md / .txt 文件');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    editor.value = ev.target.result;
+    currentFileName = file.name;
+    render();
+    saveToDB(editor.value);
+    showToast(`已导入 ${file.name} ✓ (${(file.size/1024).toFixed(1)} KB)`);
+  };
+  reader.onerror = function(){
+    showToast('⚠ 读取失败，请重试');
+  };
+  reader.readAsText(file);
+}
+
+// Drag & Drop
+const editorPane = document.getElementById('editorPane');
+editorPane.addEventListener('dragover', function(e){
+  e.preventDefault();
+  e.stopPropagation();
+  document.body.classList.add('dragover');
+});
+editorPane.addEventListener('dragleave', function(e){
+  e.preventDefault();
+  e.stopPropagation();
+  document.body.classList.remove('dragover');
+});
+editorPane.addEventListener('drop', function(e){
+  e.preventDefault();
+  e.stopPropagation();
+  document.body.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if(file) readAndLoad(file);
+});
 
 function showToast(msg){
   toast.textContent=msg; toast.classList.add('show');
