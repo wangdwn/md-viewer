@@ -344,23 +344,25 @@ function toggleView(){
 }
 
 function sanitizeFilename(s){
-  // 去Markdown格式 → 去非法文件名字符 → 去首尾空白和多余连字符
+  // 去Markdown格式（保留#，避免"C# 语言"这类标题被破坏）→ 去非法文件名字符 → 去首尾空白和多余连字符
   return s
-    .replace(/[*_~`#]/g, '')              // 去Markdown标记
     .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1') // 链接留文字
-    .replace(/[\\/:*?"<>|]/g, '-')         // 去非法文件名
+    .replace(/[*_~`]/g, '')                // 去Markdown标记（保留#）
+    .replace(/[\\/:*?"<>|]/g, '-')         // 去非法文件名（Windows/Unix非法字符）
     .replace(/\s+/g, ' ')                  // 合并空白
+    .replace(/\s*-\s*/g, '-')             // 紧凑连字符
     .replace(/-+/g, '-')                   // 合并连字符
     .replace(/^-|-$/g, '')                 // 去首尾连字符
     .trim();
 }
 
 function getDocTitle(){
-  // 1) 优先取第一个 # 标题（h1→h2→h3）
-  for(const level of ['# ','## ','### ']){
-    const re = new RegExp('^'+level.replace(/#/g,'\\#')+'(?!#)\\s*(.+)','m');
-    const m = editor.value.match(re);
-    if(m){ const t = sanitizeFilename(m[1]); if(t) return t; }
+  // 1) 优先取第一个标题（支持 h1→h6）
+  const hRe = /^#{1,6}\s+(.+)$/m;
+  const hm = editor.value.match(hRe);
+  if(hm){
+    const t = sanitizeFilename(hm[1]);
+    if(t) return t.slice(0, 80);
   }
   // 2) 无标题时取第一个有意义的非空行（跳过分隔线、空白、纯数字日期）
   const skipRe = /^[-=*]{3,}$|^\d{4}[-/]\d{1,2}[-/]\d{1,2}$|^\s*$/;
@@ -371,7 +373,7 @@ function getDocTitle(){
   }
   // 3) 终极兜底
   const d = new Date();
-  return `文档_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return `文档_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
 function exportHTML(){
@@ -392,13 +394,14 @@ img{max-width:100%;border-radius:8px}
 ul,ol{padding-left:24px}
 hr{border:none;border-top:2px solid #e2e8f0;margin:24px 0}
 @media print{body{margin:20px auto}}`;
-  const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>${docTitle}</title><style>${style}</style></head><body>${preview.innerHTML}</body></html>`;
+  const escTitle = docTitle.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>${escTitle}</title><style>${style}</style></head><body>${preview.innerHTML}</body></html>`;
   const blob = new Blob([html], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href=url; a.download=`${docTitle}.html`; a.click();
   URL.revokeObjectURL(url);
-  showToast('HTML 已导出 ✓');
+  showToast(`已导出 ${docTitle}.html ✓`);
 }
 
 function exportMD(){
@@ -408,10 +411,16 @@ function exportMD(){
   const a = document.createElement('a');
   a.href=url; a.download=`${docTitle}.md`; a.click();
   URL.revokeObjectURL(url);
-  showToast('Markdown 已导出 ✓');
+  showToast(`已导出 ${docTitle}.md ✓`);
 }
 
-function printDoc(){ window.print(); }
+function printDoc(){
+  const docTitle = getDocTitle();
+  const oldTitle = document.title;
+  document.title = docTitle;
+  window.print();
+  setTimeout(()=>{ document.title = oldTitle; }, 100);
+}
 
 function clearDoc(){
   if(editor.value.trim() && !confirm('确定清空所有内容？')) return;
