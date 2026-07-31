@@ -82,7 +82,17 @@ button:disabled{opacity:.4;cursor:default}
 .dragover .pane-label[data-pane="editor"]::after{content:' 📂 释放文件导入';color:var(--accent);font-weight:400}
 
 /* ===== Print ===== */
-@media print{body{height:auto}.toolbar,.resizer,.pane-label,.toast{display:none!important}.main{display:block}.pane{overflow:visible;border:none!important}#editor{display:none}#preview{padding:0;overflow:visible}}
+@media print{
+  body{height:auto!important;overflow:visible!important;display:block!important}
+  .toolbar,.resizer,.pane-label,.toast{display:none!important}
+  .main{display:block!important;overflow:visible!important;height:auto!important}
+  .pane{display:block!important;overflow:visible!important;height:auto!important;flex:none!important;border:none!important}
+  #editorPane,#editor{display:none!important}
+  #previewPane{display:block!important;overflow:visible!important;height:auto!important}
+  #preview{padding:0!important;overflow:visible!important;height:auto!important;max-height:none!important}
+  h1,h2,h3,h4{page-break-after:avoid}
+  pre,table,blockquote{page-break-inside:avoid}
+}
 </style>
 </head>
 <body>
@@ -458,7 +468,9 @@ function readAndLoad(file){
   }
   const reader = new FileReader();
   reader.onload = function(ev){
-    editor.value = ev.target.result;
+    // CRLF→LF 统一换行，避免 Windows 文件排版错乱
+    let text = ev.target.result.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');
+    editor.value = text;
     currentFileName = file.name;
     render();
     saveToDB(editor.value);
