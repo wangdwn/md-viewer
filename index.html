@@ -468,8 +468,10 @@ function readAndLoad(file){
   }
   const reader = new FileReader();
   reader.onload = function(ev){
-    // CRLF→LF 统一换行，避免 Windows 文件排版错乱
-    let text = ev.target.result.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');
+    // CRLF→LF + BOM strip — String.fromCharCode 规避反斜杠转义
+    let text = ev.target.result;
+    if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);
+    text=text.split(String.fromCharCode(13,10)).join(String.fromCharCode(10)).split(String.fromCharCode(13)).join(String.fromCharCode(10));
     editor.value = text;
     currentFileName = file.name;
     render();
